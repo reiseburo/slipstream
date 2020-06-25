@@ -1,0 +1,51 @@
+#
+# This is an example of a slipstream configuration.
+#
+# It is used for testing, but also serves documentation
+---
+kafka:
+  brokers:
+    - localhost:9092
+  # The configuration is passed directly through to librdkafka
+  #
+  # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+  configuration:
+    client.id: 'slipstream'
+
+# The schemas must be a directory containing .json or .yml files which
+# describe JSON schemas
+schemas: './schemas.d'
+
+topics:
+  - name: 'test'
+    # Using the `key` allows JSON messages to self-describe the schema
+    # with which they should be validated. 
+    #
+    # This will *only* be valid for a root key. This is to avoid the
+    # need to do extra parsing and searching within each message.
+    schema:
+      key: '$schema'
+    # THe routing configuration can be used to route the messages after
+    # validation to additional Kafka topics for consumption.
+    #
+    # Using the `$name` placeholder will substitute the originating
+    # topic's name, for example valid messages on "test" will be routed
+    # to "test.valid"
+    routing:
+      # Passed validation
+      valid: '$name.valid'
+      # Failed the defined schema
+      invalid: '$name.invalid'
+      # Could not be deserialized as JSON
+      error: '$name.error'
+
+  - name: 'pings'
+    # When using the `path` key for the schema, all messages in the
+    # topic will be validated against the specific schema definition
+    schema:
+      path: 'pings/v1.yml'
+    routing:
+      # The keys under `routing` are optional, omitted entries will
+      # result in messages not being routed under certain conditions
+      invalid: 'valid-pings'
+
