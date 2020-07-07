@@ -1,3 +1,15 @@
 = Slipstream 💨
 
-A tool for doing on-the-fly message validation for Kafka messages.
+A tool for doing on-the-fly message validation for Kafka using JSON Schemas.
+
+== Developing
+
+Slipstream is still _very_ early in its development.
+
+See `slipstream.yml` and `schemas.d/hello.yml` for the development configuration, and a test schema to work with. 
+
+. Compile: `cargo build`
+. Launch a Kafka stack `docker-compose up`
+. Run slipstream: `RUST_LOG=info ./target/debug/slipstream`
+. Produce messages to `test`, e.g.: `echo "{\"\$schema\":\"hello.yml\",\"hello\":\"$(date)\"}" | kafkacat -P -b localhost:9092 -t test -p -1;`
+. Watch `test.valid`, e.g. `kafkacat -C -b localhost:9092 -t test.valid`
