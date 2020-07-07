@@ -10,7 +10,7 @@ kafka:
   #
   # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
   configuration:
-    client.id: 'slipstream'
+    group.id: 'slipstream'
 
 # The schemas must be a directory containing .json or .yml files which
 # describe JSON schemas

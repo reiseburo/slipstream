@@ -7,5 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+config = "~0.10.1"
+async-std = { version = "~1.6.1", features = ["attributes"] }
+futures = { version = "~0.3.4", features = ["thread-pool"] }
 jsonschema = "~0.3.1"
 gumdrop = "~0.8.0"
+rdkafka = "~0.23.1"
+log = "~0.4.8"
+pretty_env_logger = "~0.3.1"
+
+serde = { version = "~1.0.106", features = ["rc"] }
+serde_derive = "~1.0.106"
+serde_json = "~1.0.0"

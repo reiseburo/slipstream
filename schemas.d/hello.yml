@@ -1,0 +1,39 @@
+# This file describes a JSON Schema for testing messages
+#
+# It is only ever expected to validate messages like:
+#   {
+#     "$schema" : "schema.yml",
+#     "hello" : "world",
+#     "metadata" : {
+#     }
+#   }
+---
+title: A slipstream test schema
+description: |
+  This schema will validate only simple hello world messages for testing
+  the slipstream validation engine
+
+type: object
+required:
+  - $schema
+  - hello
+properties:
+  $schema:
+    type: string
+    description: |
+      The $schema field contains a relative path to the schema that describes
+      this message. In this test it is intended to be located within the configured
+      schemas directory
+
+  hello:
+    type: string
+    description: |
+      A name of to whom this message should say hello
+
+  metadata:
+    type: object
+    description: |
+      User-defined additional metadata.
+
+      Note that the contents of this object are not subject to the schema
+      validation
