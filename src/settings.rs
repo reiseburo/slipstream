@@ -17,39 +17,39 @@ pub fn load_settings() -> Settings {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    kafka: Kafka,
-    schemas: PathBuf,
-    topics: Vec<Topic>,
+    pub kafka: Kafka,
+    pub schemas: PathBuf,
+    pub topics: Vec<Topic>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Kafka {
-    brokers: Vec<String>,
-    configuration: HashMap<String, String>,
+    pub brokers: Vec<String>,
+    pub configuration: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Topic {
-    name: String,
-    schema: SchemaType,
-    routing: RoutingInfo, 
+    pub name: String,
+    pub schema: SchemaType,
+    pub routing: RoutingInfo,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaType {
-    key: Option<String>,
-    path: Option<PathBuf>,
+    pub key: Option<String>,
+    pub path: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoutingInfo {
-    valid: Option<String>,
-    invalid: Option<String>,
-    error: Option<String>,
+    pub valid: Option<String>,
+    pub invalid: Option<String>,
+    pub error: Option<String>,
 }
 
 #[cfg(test)]
