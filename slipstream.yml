@@ -4,13 +4,11 @@
 # It is used for testing, but also serves documentation
 ---
 kafka:
-  brokers:
-    - localhost:9092
   # The configuration is passed directly through to librdkafka
   #
   # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
-  configuration:
-    group.id: 'slipstream'
+  bootstrap.servers: localhost:9092
+  group.id: 'slipstream'
 
 # The schemas must be a directory containing .json or .yml files which
 # describe JSON schemas

@@ -17,16 +17,13 @@ pub fn load_settings() -> Settings {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    pub kafka: Kafka,
+    /**
+     * "Raw" Kafka configuration to be passed verbatim to the librdkafka
+     * ClientConfig
+     */
+    pub kafka: HashMap<String, String>,
     pub schemas: PathBuf,
     pub topics: Vec<Topic>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Kafka {
-    pub brokers: Vec<String>,
-    pub configuration: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -59,8 +56,10 @@ mod tests {
     #[test]
     fn test_load_settings() {
         let settings = load_settings();
-        assert_eq!(settings.kafka.brokers[0], "localhost:9092");
-        let group = settings.kafka.configuration.get("group.id")
+        let brokers = settings.kafka.get("bootstrap.servers")
+            .expect("Failed to look up the bootstrap.servers");
+        assert_eq!(brokers, "localhost:9092");
+        let group = settings.kafka.get("group.id")
             .expect("Failed to look up the group.id");
         assert_eq!(group, "slipstream");
     }

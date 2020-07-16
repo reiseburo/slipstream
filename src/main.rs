@@ -66,11 +66,9 @@ async fn main() {
     let (sender, mut receiver) = channel::<DispatchMessage>(1024);
     // Creating an Arc to pass into the consumers
     let schemas = Arc::new(schemas);
-    let brokers = settings.kafka.brokers.join(",");
     let mut kafka_config: ClientConfig = ClientConfig::new();
-    kafka_config.set("bootstrap.servers", &brokers);
 
-    for (key, value) in settings.kafka.configuration.iter() {
+    for (key, value) in settings.kafka.iter() {
         kafka_config.set(key, value);
     }
 
