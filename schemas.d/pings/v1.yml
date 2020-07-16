@@ -1,0 +1,26 @@
+#
+# This file describes a simple JSON Schema for a "ping" message
+#
+#   {
+#     "ping" : 1,
+#     "valid" : true
+#   }
+#
+---
+title: A slipstream test schema for pings
+description: |
+  This schema validates a "ping" message, and is used mostly to help validate schemas not defined in-message but rather those defined externally.
+
+type: object
+required:
+  - ping
+properties:
+  ping:
+    type: number
+    minimum: 0
+    maximum: 10
+    description: Ping a number between 0-10
+
+  valid:
+    type: boolean
+    description: Tell us if this is a valid ping

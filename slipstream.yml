@@ -22,7 +22,7 @@ topics:
     # This will *only* be valid for a root key. This is to avoid the
     # need to do extra parsing and searching within each message.
     schema:
-      key: '$schema'
+      key: '$id'
     # THe routing configuration can be used to route the messages after
     # validation to additional Kafka topics for consumption.
     #
@@ -37,6 +37,16 @@ topics:
       # Could not be deserialized as JSON
       error: '$name.error'
 
+  # Slipstream topic mappings can be chained to allow for secondary schema
+  # validation, i.e. "this message wasn't valid for v2 of the spec, what about
+  # v1?"
+  #
+  - name: 'test.invalid'
+    schema:
+      path: 'some-legacy-schema.yml'
+    routing:
+      valid: 'tests-v1'
+
   - name: 'pings'
     # When using the `path` key for the schema, all messages in the
     # topic will be validated against the specific schema definition
@@ -45,5 +55,5 @@ topics:
     routing:
       # The keys under `routing` are optional, omitted entries will
       # result in messages not being routed under certain conditions
-      invalid: 'valid-pings'
+      invalid: 'invalid-pings'
 

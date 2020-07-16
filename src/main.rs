@@ -20,12 +20,34 @@ use std::fs;
 
 mod settings;
 
-#[derive(Debug)]
+/**
+ * A struct to carry a message over a channel to be published into Kafka
+ */
+#[derive(Clone, Debug)]
 struct DispatchMessage {
     // Topic the message should be written to
     destination: String,
     payload: String,
 }
+
+/**
+ * Collection of named parsed JSON Schemas
+ *
+ * Note: these schemas have not yet been compiled!
+ */
+type NamedSchemas = HashMap<String, serde_json::Value>;
+
+/**
+ * TopicContext will carry the necessary context into a topic consumer to enable
+ * it to properly parse and route messages
+ */
+#[derive(Clone, Debug)]
+struct TopicContext {
+    topic: settings::Topic,
+    settings: Arc<settings::Settings>,
+    schemas: Arc<HashMap<String, serde_json::Value>>,
+}
+
 
 #[async_std::main]
 async fn main() {
@@ -33,34 +55,8 @@ async fn main() {
     let settings = Arc::new(settings::load_settings());
 
     // Load schemas from directory
-    let mut schemas = HashMap::<String, serde_json::Value>::new();
-    let schemas_d = fs::read_dir(settings.schemas.clone())
-        .expect(&format!("Failed to read directory: {:?}", settings.schemas));
-
-    for file in schemas_d {
-        if let Ok(file) = file {
-            let file = file.path();
-            match file.extension() {
-                Some(ext) => {
-                    if ext == "yml" {
-                        info!("Loading schema: {:?}", file);
-                        let buf = fs::read_to_string(&file)
-                            .expect(&format!("Failed to read {:?}", file));
-
-                        let file_name = file.file_name().expect("Failed to unpack file_name()");
-                        let value: serde_json::Value = serde_yaml::from_str(&buf)
-                            .expect(&format!("Failed to parse {:?}", file));
-
-                        let key = file_name.to_str().unwrap().to_string();
-                        debug!("Inserting schema for key: {}", key);
-                        // This is gross, gotta be a better way to structure this
-                        schemas.insert(key, value);
-                    }
-                },
-                _ => {},
-            }
-        }
-    }
+    let schemas = load_schemas_from(settings.schemas.clone())
+        .expect("Failed to load schemas.d");
 
     // XXX: fix this magic number and make the channel size configurable
     let (sender, mut receiver) = channel::<DispatchMessage>(1024);
@@ -83,8 +79,14 @@ async fn main() {
             .create()
             .expect("Consumer creation failed");
 
+        let ctx = TopicContext {
+            topic: topic.clone(),
+            settings: settings.clone(),
+            schemas: schemas.clone(),
+        };
+
         // Launch a consumer task for each topic
-        task::spawn(consume_topic(consumer, topic.clone(), schemas.clone(), sender.clone()));
+        task::spawn(consume_topic(consumer, ctx, sender.clone()));
     }
 
     // Need to block the main task here with something so the topic consumers don't die
@@ -102,12 +104,12 @@ async fn main() {
     });
 }
 
-
 /**
  * This function starts a runloop which will consume from the given topic
  * and then send messages along to the sender channel
  */
-async fn consume_topic(consumer: StreamConsumer, topic: settings::Topic, schemas: Arc<HashMap<String, serde_json::Value>>, mut sender: Sender<DispatchMessage>) -> Result<(), std::io::Error> {
+async fn consume_topic(consumer: StreamConsumer, ctx: TopicContext, mut sender: Sender<DispatchMessage>) -> Result<(), std::io::Error> {
+    let topic = ctx.topic;
 
     consumer.subscribe(&[&topic.name])
         .expect("Could not subscribe consumer");
@@ -143,7 +145,7 @@ async fn consume_topic(consumer: StreamConsumer, topic: settings::Topic, schemas
                 let schema = value.get("$schema")
                     .expect("Message had no $schema");
                 // TODO: make this safer
-                let schema = schemas.get(schema.as_str().unwrap())
+                let schema = ctx.schemas.get(schema.as_str().unwrap())
                     .expect("Unknown schema defined");
                 trace!("Compiling schema: {}", schema);
 
@@ -190,4 +192,53 @@ async fn consume_topic(consumer: StreamConsumer, topic: settings::Topic, schemas
     }
 
     Ok(())
+}
+
+fn load_schemas_from(directory: std::path::PathBuf) -> Result<NamedSchemas, ()> {
+    let mut schemas = HashMap::<String, serde_json::Value>::new();
+    let schemas_d = fs::read_dir(&directory)
+        .expect(&format!("Failed to read directory: {:?}", directory));
+
+    for file in schemas_d {
+        if let Ok(file) = file {
+            let file = file.path();
+            match file.extension() {
+                Some(ext) => {
+                    if ext == "yml" {
+                        info!("Loading schema: {:?}", file);
+                        let buf = fs::read_to_string(&file)
+                            .expect(&format!("Failed to read {:?}", file));
+
+                        let file_name = file.file_name().expect("Failed to unpack file_name()");
+                        let value: serde_json::Value = serde_yaml::from_str(&buf)
+                            .expect(&format!("Failed to parse {:?}", file));
+
+                        let key = file_name.to_str().unwrap().to_string();
+                        debug!("Inserting schema for key: {}", key);
+                        // This is gross, gotta be a better way to structure this
+                        schemas.insert(key, value);
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+    Ok(schemas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /**
+     * This test is pretty primitive, and is coupled to slipstream.yml in the
+     * repository
+     */
+    #[test]
+    fn test_load_schemas_from() {
+        let schemas = load_schemas_from(std::path::PathBuf::from("./schemas.d"));
+        assert!(schemas.is_ok());
+        let schemas = schemas.unwrap();
+        assert_eq!(schemas.keys().len(), 1);
+    }
 }

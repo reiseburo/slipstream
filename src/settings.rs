@@ -30,15 +30,27 @@ pub struct Settings {
 #[serde(rename_all = "camelCase")]
 pub struct Topic {
     pub name: String,
-    pub schema: SchemaType,
+    pub schema: Schema,
     pub routing: RoutingInfo,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchemaType {
-    pub key: Option<String>,
-    pub path: Option<PathBuf>,
+#[serde(untagged, rename_all = "camelCase")]
+pub enum Schema {
+    /**
+     * A Key-based schema relies on the Kafka message to have a build in JSON key
+     * at the _root level_ which defines the path to the JSON Schema
+     */
+    KeyType {
+        key: String,
+    },
+    /**
+     * A Path-based schema defines a schema that should be applied from outside the
+     * message content itself, i.e. the message needn't be self-describing.
+     */
+    PathType  {
+        path: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
