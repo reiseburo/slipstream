@@ -57,3 +57,8 @@ topics:
       # result in messages not being routed under certain conditions
       invalid: 'invalid-pings'
 
+  - name: 'other'
+    schema:
+      path: 'other.yml'
+    routing:
+      valid: '$name.valid'
