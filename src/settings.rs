@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -7,10 +6,12 @@ use std::path::PathBuf;
 */
 pub fn load_settings() -> Settings {
     let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("slipstream.yml"))
+    settings
+        .merge(config::File::with_name("slipstream.yml"))
         .expect("Failed to load configuration from `slipstream.yml`");
 
-    settings.try_into()
+    settings
+        .try_into()
         .expect("Failed to coerce configuration into our internal structures")
 }
 
@@ -41,16 +42,12 @@ pub enum Schema {
      * A Key-based schema relies on the Kafka message to have a build in JSON key
      * at the _root level_ which defines the path to the JSON Schema
      */
-    KeyType {
-        key: String,
-    },
+    KeyType { key: String },
     /**
      * A Path-based schema defines a schema that should be applied from outside the
      * message content itself, i.e. the message needn't be self-describing.
      */
-    PathType  {
-        path: PathBuf,
-    },
+    PathType { path: PathBuf },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,10 +65,14 @@ mod tests {
     #[test]
     fn test_load_settings() {
         let settings = load_settings();
-        let brokers = settings.kafka.get("bootstrap.servers")
+        let brokers = settings
+            .kafka
+            .get("bootstrap.servers")
             .expect("Failed to look up the bootstrap.servers");
         assert_eq!(brokers, "localhost:9092");
-        let group = settings.kafka.get("group.id")
+        let group = settings
+            .kafka
+            .get("group.id")
             .expect("Failed to look up the group.id");
         assert_eq!(group, "slipstream");
     }
