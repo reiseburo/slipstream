@@ -12,7 +12,7 @@ kafka:
 
 # The schemas must be a directory containing .json or .yml files which
 # describe JSON schemas
-schemas: './schemas.d'
+schemas: 'schemas.d'
 
 topics:
   - name: 'test'

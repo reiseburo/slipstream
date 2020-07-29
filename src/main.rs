@@ -6,6 +6,7 @@ use async_std::task;
 use futures::channel::mpsc::{channel, Sender};
 use futures::sink::SinkExt;
 use futures::StreamExt;
+use glob;
 use jsonschema::{Draft, JSONSchema};
 use log::*;
 use rdkafka::config::ClientConfig;
@@ -231,30 +232,47 @@ async fn consume_topic(
  */
 fn load_schemas_from(directory: std::path::PathBuf) -> Result<NamedSchemas, ()> {
     let mut schemas = HashMap::<String, serde_json::Value>::new();
-    let schemas_d =
-        fs::read_dir(&directory).expect(&format!("Failed to read directory: {:?}", directory));
+    let pattern = format!("{}/**/*.yml", directory.display());
+    debug!("Loading schemas with pattern: {}", pattern);
 
-    for file in schemas_d {
-        if let Ok(file) = file {
-            let file = file.path();
-            match file.extension() {
-                Some(ext) => {
-                    if ext == "yml" {
-                        info!("Loading schema: {:?}", file);
-                        let buf =
-                            fs::read_to_string(&file).expect(&format!("Failed to read {:?}", file));
+    let directory_path = std::path::Path::new(&directory);
 
-                        let file_name = file.file_name().expect("Failed to unpack file_name()");
-                        let value: serde_json::Value = serde_yaml::from_str(&buf)
-                            .expect(&format!("Failed to parse {:?}", file));
+    let options = glob::MatchOptions {
+        case_sensitive: false,
+        require_literal_separator: false,
+        require_literal_leading_dot: false,
+    };
 
-                        let key = file_name.to_str().unwrap().to_string();
-                        debug!("Inserting schema for key: {}", key);
-                        // This is gross, gotta be a better way to structure this
-                        schemas.insert(key, value);
+    for entry in glob::glob_with(&pattern, options).expect("Failed to read glob pattern") {
+        match entry {
+            Ok(path) => {
+                println!("{} - {}", directory_path.display(), path.display());
+                if let Ok(file) = path.strip_prefix(directory_path) {
+                    debug!("Considering {} as a possible schema file", file.display());
+                    match file.extension() {
+                        Some(ext) => {
+                            if ext == "yml" {
+                                info!("Loading schema: {:?}", file);
+                                let buf = fs::read_to_string(&path)
+                                    .expect(&format!("Failed to read {:?}", file));
+
+                                let file_name =
+                                    file.file_name().expect("Failed to unpack file_name()");
+                                let value: serde_json::Value = serde_yaml::from_str(&buf)
+                                    .expect(&format!("Failed to parse {:?}", file));
+
+                                let key = file_name.to_str().unwrap().to_string();
+                                debug!("Inserting schema for key: {}", key);
+                                // This is gross, gotta be a better way to structure this
+                                schemas.insert(key, value);
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
+            }
+            Err(e) => {
+                error!("Failed to glob directory properly! {}", e);
             }
         }
     }
@@ -267,7 +285,7 @@ mod tests {
     use serde_json::json;
 
     fn schemas_for_test() -> NamedSchemas {
-        load_schemas_from(std::path::PathBuf::from("./schemas.d"))
+        load_schemas_from(std::path::PathBuf::from("schemas.d"))
             .expect("Failed to load schemas for test")
     }
 
@@ -281,8 +299,9 @@ mod tests {
      */
     #[test]
     fn test_load_schemas_from() {
+        pretty_env_logger::init();
         let schemas = schemas_for_test();
-        assert_eq!(schemas.keys().len(), 2);
+        assert_eq!(schemas.keys().len(), 3);
     }
 
     /**
