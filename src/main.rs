@@ -226,8 +226,6 @@ async fn consume_topic(
 
 /**
  * Load all the .yml files which appear to be schemas in the given directory
- *
- * NOTE: This does not yet recurse through the directories
  */
 fn load_schemas_from(directory: std::path::PathBuf) -> Result<NamedSchemas, ()> {
     let mut schemas = HashMap::<String, serde_json::Value>::new();
