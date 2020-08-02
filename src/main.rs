@@ -6,7 +6,6 @@ use async_std::task;
 use futures::channel::mpsc::{channel, Sender};
 use futures::sink::SinkExt;
 use futures::StreamExt;
-use glob;
 use jsonschema::{Draft, JSONSchema};
 use log::*;
 use rdkafka::config::ClientConfig;
@@ -14,8 +13,6 @@ use rdkafka::consumer::stream_consumer::StreamConsumer;
 use rdkafka::consumer::Consumer;
 use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use serde_json;
-use serde_yaml;
 use std::collections::HashMap;
 use std::fs;
 
@@ -262,25 +259,21 @@ fn load_schemas_from(directory: std::path::PathBuf) -> Result<NamedSchemas, ()> 
                 println!("{} - {}", directory_path.display(), path.display());
                 if let Ok(file) = path.strip_prefix(directory_path) {
                     debug!("Considering {} as a possible schema file", file.display());
-                    match file.extension() {
-                        Some(ext) => {
-                            if ext == "yml" {
-                                info!("Loading schema: {:?}", file);
-                                let buf = fs::read_to_string(&path)
-                                    .expect(&format!("Failed to read {:?}", file));
+                    if let Some(ext) = file.extension() {
+                        if ext == "yml" {
+                            info!("Loading schema: {:?}", file);
+                            let buf = fs::read_to_string(&path)
+                                .unwrap_or_else(|_| panic!("Failed to read: {:?}", file));
 
-                                let file_name =
-                                    file.file_name().expect("Failed to unpack file_name()");
-                                let value: serde_json::Value = serde_yaml::from_str(&buf)
-                                    .expect(&format!("Failed to parse {:?}", file));
+                            let file_name = file.file_name().expect("Failed to unpack file_name()");
+                            let value: serde_json::Value = serde_yaml::from_str(&buf)
+                                .unwrap_or_else(|_| panic!("Failed to parse: {:?}", file));
 
-                                let key = file_name.to_str().unwrap().to_string();
-                                debug!("Inserting schema for key: {}", key);
-                                // This is gross, gotta be a better way to structure this
-                                schemas.insert(key, value);
-                            }
+                            let key = file_name.to_str().unwrap().to_string();
+                            debug!("Inserting schema for key: {}", key);
+                            // This is gross, gotta be a better way to structure this
+                            schemas.insert(key, value);
                         }
-                        _ => {}
                     }
                 }
             }
@@ -329,7 +322,7 @@ fn validate_message(
  */
 fn format_routed_topic(original: &str, routed: &str) -> String {
     // this is ugly
-    routed.clone().replace("$name", original)
+    routed.replace("$name", original)
 }
 
 #[cfg(test)]
