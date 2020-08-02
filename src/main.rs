@@ -82,8 +82,7 @@ async fn main() {
     // Load schemas from directory
     let schemas = load_schemas_from(settings.schemas.clone()).expect("Failed to load schemas.d");
 
-    // XXX: fix this magic number and make the channel size configurable
-    let (sender, mut receiver) = channel::<DispatchMessage>(1024);
+    let (sender, mut receiver) = channel::<DispatchMessage>(settings.internal.sendbuffer);
     // Creating an Arc to pass into the consumers
     let schemas = Arc::new(schemas);
     let mut kafka_config: ClientConfig = ClientConfig::new();

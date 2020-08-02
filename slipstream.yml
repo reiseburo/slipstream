@@ -62,3 +62,11 @@ topics:
       path: 'other.yml'
     routing:
       valid: '$name.valid'
+
+# All internal settings are optional, and should only be changed by
+# power-users, i.e. those who likely have read the source code to slipstream :)
+internal:
+  # Size of the internal buffer for queueing messages to the librdkafka
+  # producer. This is _not_ the same as the librdkafka internal buffer and only
+  # serves to pass processed messages between worker tasks.
+  sendbuffer: 1024

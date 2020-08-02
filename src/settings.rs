@@ -23,8 +23,19 @@ pub struct Settings {
      * ClientConfig
      */
     pub kafka: HashMap<String, String>,
+    /**
+     * Internal settings that most users shouldn't ever need to tweak
+     */
+    pub internal: Internal,
     pub schemas: PathBuf,
     pub topics: Vec<Topic>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Internal {
+    #[serde(default = "default_buffer_size")]
+    pub sendbuffer: usize,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -56,6 +67,13 @@ pub struct RoutingInfo {
     pub valid: Option<String>,
     pub invalid: Option<String>,
     pub error: Option<String>,
+}
+
+/**
+ * Returns the default buffer size for internal messaging within slipstream
+ */
+fn default_buffer_size() -> usize {
+    1024
 }
 
 #[cfg(test)]
