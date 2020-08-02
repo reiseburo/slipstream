@@ -32,6 +32,16 @@ struct DispatchMessage {
 }
 
 /**
+ * Simple struct to carry some data back to callers on validation errors
+ */
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidationError {
+    data: serde_json::Value,
+    errors: Vec<String>,
+}
+
+/**
  * Collection of named parsed JSON Schemas
  *
  * Note: these schemas have not yet been compiled!
@@ -162,14 +172,15 @@ async fn consume_topic(
                 };
                 debug!("Message consumed: {:?}", payload);
 
-                // Do the schema validation
-
-                // TODO: better error handling for non-JSON
-                let value: serde_json::Value =
-                    serde_json::from_str(payload).expect("Failed to deserialize message payload");
+                let value: Result<serde_json::Value, serde_json::error::Error> =
+                    serde_json::from_str(payload);
+                if value.is_err() {
+                    debug!("Non-JSON payload received: {:?}", payload);
+                    continue;
+                }
+                let value = value.unwrap();
 
                 let schema = ctx.schema_to_use(&value);
-
                 if schema.is_none() {
                     error!(
                         "Could not load a schema, skipping message on {}",
@@ -185,30 +196,35 @@ async fn consume_topic(
                 let compiled = JSONSchema::compile(&schema, Some(Draft::Draft7))
                     .expect("Failed to compile JSONSchema");
 
-                match compiled.validate(&value) {
-                    Err(errors) => {
-                        for error in errors {
-                            warn!("Validation error: {}", error)
-                        }
-                        // TODO: Include the validation errors in the JSON output message
+                match validate_message(value, compiled) {
+                    Err(validation_error) => {
                         if let Some(invalid_topic) = &topic.routing.invalid {
-                            // TODO: this is ugly
-                            let destination = invalid_topic.clone().replace("$name", &topic.name);
-                            let message = DispatchMessage {
-                                destination,
-                                payload: payload.to_string(),
-                            };
+                            let destination = format_routed_topic(&topic.name, invalid_topic);
 
-                            sender.send(message).await;
+                            match serde_json::to_string(&validation_error) {
+                                Ok(payload) => {
+                                    let message = DispatchMessage {
+                                        destination,
+                                        payload,
+                                    };
+                                    sender.send(message).await;
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to serialize a validation error to JSON: {:?}",
+                                        e
+                                    );
+                                }
+                            }
                         }
                     }
-                    Ok(_) => {
+
+                    Ok(value) => {
                         if let Some(valid_topic) = &topic.routing.valid {
-                            // TODO: this is ugly
-                            let destination = valid_topic.clone().replace("$name", &topic.name);
+                            let destination = format_routed_topic(&topic.name, valid_topic);
                             let message = DispatchMessage {
                                 destination,
-                                payload: payload.to_string(),
+                                payload: value.to_string(),
                             };
 
                             sender.send(message).await;
@@ -216,7 +232,7 @@ async fn consume_topic(
                             debug!("No valid topic defined for {}", topic.name);
                         }
                     }
-                };
+                }
             }
         }
     }
@@ -274,6 +290,46 @@ fn load_schemas_from(directory: std::path::PathBuf) -> Result<NamedSchemas, ()> 
         }
     }
     Ok(schemas)
+}
+
+/**
+ * Validate the given message against the given schema
+ */
+fn validate_message(
+    payload: serde_json::Value,
+    schema: JSONSchema,
+) -> Result<serde_json::Value, ValidationError> {
+    let mut valid = false;
+    let mut errors = vec![];
+
+    match schema.validate(&payload) {
+        Err(validation_errs) => {
+            for error in validation_errs {
+                trace!("Validation error: {}", error);
+                errors.push(format!("{}", error));
+            }
+        }
+        Ok(_) => {
+            valid = true;
+        }
+    }
+
+    if valid {
+        return Ok(payload);
+    }
+
+    Err(ValidationError {
+        data: payload,
+        errors,
+    })
+}
+
+/**
+ * Format the routed topic name, substituting $name with the original topic where appropriate
+ */
+fn format_routed_topic(original: &str, routed: &str) -> String {
+    // this is ugly
+    routed.clone().replace("$name", original)
 }
 
 #[cfg(test)]
@@ -359,5 +415,55 @@ mod tests {
 
         assert!(schema.is_some());
         assert_eq!(expected_schema, schema.unwrap());
+    }
+
+    #[test]
+    fn test_validate_message() {
+        let payload = json!({"$id" : "hello.yml", "hello" : "test"});
+        let schemas = Arc::new(schemas_for_test());
+        let expected_schema = schemas
+            .get("hello.yml")
+            .expect("Failed to load hello.yml named schema");
+
+        let schema = JSONSchema::compile(expected_schema, Some(Draft::Draft7))
+            .expect("Failed to compile JSONSchema");
+
+        let result = validate_message(payload, schema);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_message_with_invalid() {
+        let payload = json!({"$id" : "hello.yml"});
+        // Used for later verification without messing up ownership
+        let payload_clone = payload.clone();
+        let schemas = Arc::new(schemas_for_test());
+        let expected_schema = schemas
+            .get("hello.yml")
+            .expect("Failed to load hello.yml named schema");
+
+        let schema = JSONSchema::compile(expected_schema, Some(Draft::Draft7))
+            .expect("Failed to compile JSONSchema");
+
+        let result = validate_message(payload, schema);
+        assert!(result.is_err());
+        // Only expecting one validation error "'hello' is a required property"
+        let err = result.unwrap_err();
+        assert_eq!(err.errors.len(), 1);
+        assert_eq!(err.data, payload_clone);
+    }
+
+    /**
+     * Test that the format_routed_topic() properly replaces $name characters
+     * with the original topic name
+     */
+    #[test]
+    fn test_format_routed_topic() {
+        let original = "test";
+        let valid = "$name-valid";
+        let invalid = "$name-invalid";
+
+        assert_eq!(format_routed_topic(&original, valid), "test-valid");
+        assert_eq!(format_routed_topic(&original, invalid), "test-invalid");
     }
 }
