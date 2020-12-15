@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate serde_derive;
 
-use async_std::sync::Arc;
 use async_std::task;
 use futures::channel::mpsc::{channel, Sender};
 use futures::sink::SinkExt;
@@ -45,80 +44,98 @@ struct ValidationError {
  */
 type NamedSchemas = HashMap<String, serde_json::Value>;
 
-/**
- * TopicContext will carry the necessary context into a topic consumer to enable
- * it to properly parse and route messages
- */
-#[derive(Clone, Debug)]
-struct TopicContext {
-    topic: settings::Topic,
-    settings: Arc<settings::Settings>,
-    schemas: Arc<HashMap<String, serde_json::Value>>,
+/// Stores topic metadata including schemas and routing info. Provides helper functions for loading
+/// the desired schema and routing info from a topic name.
+pub struct TopicMap {
+    map: HashMap<String, settings::Topic>,
+    schemas: HashMap<String, serde_json::Value>,
 }
 
-impl TopicContext {
-    /**
-     * Return the schema to use for validating this topic
-     */
-    pub fn schema_to_use(&self, message: &serde_json::Value) -> Option<&serde_json::Value> {
-        match &self.topic.schema {
-            settings::Schema::KeyType { key } => {
-                // Fish out the right sub-value for the key
-                if let Some(schema) = message.get(key) {
-                    // Use the string value assuming we can get it
-                    if let Some(schema) = schema.as_str() {
-                        return self.schemas.get(schema);
-                    }
-                }
-            }
+impl TopicMap {
+    /// Creates a new `TopicMap`.
+    pub fn new(
+        topics: &[settings::Topic],
+        schemas: HashMap<String, serde_json::Value>,
+    ) -> TopicMap {
+        let topics = topics
+            .iter()
+            .map(|t| (t.name.clone(), t.clone()))
+            .into_iter()
+            .collect();
+
+        TopicMap {
+            map: topics,
+            schemas,
+        }
+    }
+
+    /// Returns the schema for the given topic name and message. If the schema is `KeyType`,
+    /// inspects the given message to determine the file to load.
+    pub fn schema_for_topic(
+        &self,
+        topic_name: &str,
+        message: &serde_json::Value,
+    ) -> Option<&serde_json::Value> {
+        let topic = self
+            .map
+            .get(topic_name)
+            .expect(format!("No settings for {}", topic_name).as_str());
+
+        match &topic.schema {
             settings::Schema::PathType { path } => {
-                if let Some(path_str) = path.as_path().to_str() {
-                    return self.schemas.get(path_str);
-                }
+                let path = path.as_path().to_str()?;
+                self.schemas.get(path)
+            }
+            settings::Schema::KeyType { key } => {
+                let schema_id = message.get(key)?.as_str()?;
+                self.schemas.get(schema_id)
             }
         }
-        None
+    }
+
+    /// Returns the `RoutingInfo` for the given topic name.
+    pub fn routing_for_topic(&self, topic_name: &str) -> &settings::RoutingInfo {
+        let topic = self
+            .map
+            .get(topic_name)
+            .expect(format!("No settings for {}", topic_name).as_str());
+
+        &topic.routing
+    }
+
+    /// Returns the list of topics to subscribe to. This amounts to all topics configured in
+    /// settings.
+    pub fn subscription(&self) -> Vec<&str> {
+        self.map.keys().map(|k| k.as_str()).collect()
     }
 }
 
 #[async_std::main]
 async fn main() {
     pretty_env_logger::init();
-    let settings = Arc::new(settings::load_settings());
+    let settings = settings::load_settings();
 
     // Load schemas from directory
     let schemas = load_schemas_from(settings.schemas.clone()).expect("Failed to load schemas.d");
 
+    // Setup a channel for the consumer to dispatch messages to
     let (sender, mut receiver) = channel::<DispatchMessage>(settings.internal.sendbuffer);
-    // Creating an Arc to pass into the consumers
-    let schemas = Arc::new(schemas);
+
+    // create a topic map to lookup schemas and routing for each consumed message.
+    let topic_map = TopicMap::new(settings.topics.as_slice(), schemas);
+
+    // Setup Kafka config to use for the consumer and producer
     let mut kafka_config: ClientConfig = ClientConfig::new();
 
     for (key, value) in settings.kafka.iter() {
         kafka_config.set(key, value);
     }
 
-    for topic in settings.topics.iter() {
-        /*
-         * NOTE: I don't like this but for now each topic will get its own consumer
-         * connection to Kafka. While this probably isn't a bad thing, I just don't
-         * like it
-         */
+    // create a single consumer across all configured topics.
+    let consumer: StreamConsumer = kafka_config.create().expect("Consumer creation failed");
 
-        let consumer: StreamConsumer = kafka_config
-            .clone()
-            .create()
-            .expect("Consumer creation failed");
-
-        let ctx = TopicContext {
-            topic: topic.clone(),
-            settings: settings.clone(),
-            schemas: schemas.clone(),
-        };
-
-        // Launch a consumer task for each topic
-        task::spawn(consume_topic(consumer, ctx, sender.clone()));
-    }
+    // run the validation stream in a separate thread
+    task::spawn(validate_topics(consumer, topic_map, sender.clone()));
 
     // Need to block the main task here with something so the topic consumers don't die
     task::block_on(async move {
@@ -134,23 +151,25 @@ async fn main() {
     });
 }
 
-/**
- * This function starts a runloop which will consume from the given topic
- * and then send messages along to the sender channel
- */
-async fn consume_topic(
+/// Subscribes the `consumer` to all topics configured in `topic_map`. Validates each received
+/// message and sends it to `sender` as appropriate.
+async fn validate_topics(
     consumer: StreamConsumer,
-    ctx: TopicContext,
+    topic_map: TopicMap,
     mut sender: Sender<DispatchMessage>,
 ) -> Result<(), std::io::Error> {
-    let topic = &ctx.topic;
+    // Subscribe one consumer to all topics configured in settings
+    let subscription = topic_map.subscription();
 
     consumer
-        .subscribe(&[&topic.name])
-        .expect("Could not subscribe consumer");
-    let mut stream = consumer.start();
-    debug!("Consuming from {}", topic.name);
+        .subscribe(subscription.as_slice())
+        .expect(format!("Could not subscribe with subscription {:?}", subscription).as_str());
 
+    let mut stream = consumer.start();
+
+    debug!("Consuming from {:?}", subscription);
+
+    // Handle each produced message
     while let Some(message) = stream.next().await {
         match message {
             Err(e) => {
@@ -167,6 +186,7 @@ async fn consume_topic(
                         ""
                     }
                 };
+
                 debug!("Message consumed: {:?}", payload);
 
                 let value: Result<serde_json::Value, serde_json::error::Error> =
@@ -175,29 +195,32 @@ async fn consume_topic(
                     debug!("Non-JSON payload received: {:?}", payload);
                     continue;
                 }
+
                 let value = value.unwrap();
 
-                let schema = ctx.schema_to_use(&value);
+                let topic_name = message.topic();
+
+                let schema = topic_map.schema_for_topic(topic_name, &value);
                 if schema.is_none() {
                     error!(
                         "Could not load a schema, skipping message on {}",
-                        topic.name
+                        message.topic()
                     );
                     continue;
                 }
                 let schema = schema.unwrap();
-
                 trace!("Compiling schema: {}", schema);
                 // TODO: Make this compilation checking and whatnot happen outside
                 // of the message loop
                 let compiled = JSONSchema::compile(&schema, Some(Draft::Draft7))
                     .expect("Failed to compile JSONSchema");
 
+                let routing = topic_map.routing_for_topic(topic_name);
+
                 match validate_message(value, compiled) {
                     Err(validation_error) => {
-                        if let Some(invalid_topic) = &topic.routing.invalid {
-                            let destination = format_routed_topic(&topic.name, invalid_topic);
-
+                        if let Some(invalid_topic) = &routing.invalid {
+                            let destination = format_routed_topic(topic_name, invalid_topic);
                             match serde_json::to_string(&validation_error) {
                                 Ok(payload) => {
                                     let message = DispatchMessage {
@@ -217,8 +240,8 @@ async fn consume_topic(
                     }
 
                     Ok(value) => {
-                        if let Some(valid_topic) = &topic.routing.valid {
-                            let destination = format_routed_topic(&topic.name, valid_topic);
+                        if let Some(valid_topic) = &routing.valid {
+                            let destination = format_routed_topic(topic_name, valid_topic);
                             let message = DispatchMessage {
                                 destination,
                                 payload: value.to_string(),
@@ -226,7 +249,7 @@ async fn consume_topic(
 
                             sender.send(message).await;
                         } else {
-                            debug!("No valid topic defined for {}", topic.name);
+                            debug!("No valid topic defined for {}", topic_name);
                         }
                     }
                 }
@@ -358,21 +381,17 @@ mod tests {
      */
     #[test]
     fn test_topics_schema() {
-        let settings = Arc::new(settings_for_test());
-        let schemas = Arc::new(schemas_for_test());
+        let settings = settings_for_test();
+        let schemas = schemas_for_test();
 
-        let ctx = TopicContext {
-            schemas: schemas.clone(),
-            topic: settings.topics[0].clone(),
-            settings,
-        };
+        let topic_map = TopicMap::new(settings.topics.as_slice(), schemas.clone());
 
         let message = json!({"$id" : "hello.yml"});
         let expected_schema = schemas
             .get("hello.yml")
             .expect("Failed to load hello.yml named schema");
 
-        let schema = ctx.schema_to_use(&message);
+        let schema = topic_map.schema_for_topic("test", &message);
 
         assert!(schema.is_some());
         assert_eq!(expected_schema, schema.unwrap());
@@ -383,8 +402,8 @@ mod tests {
      */
     #[test]
     fn test_topics_schema_with_path() {
-        let settings = Arc::new(settings_for_test());
-        let schemas = Arc::new(schemas_for_test());
+        let settings = settings_for_test();
+        let schemas = schemas_for_test();
 
         let topics: Vec<settings::Topic> = settings
             .topics
@@ -393,18 +412,13 @@ mod tests {
             .filter(|t| t.name == "other")
             .collect();
 
-        let ctx = TopicContext {
-            schemas: schemas.clone(),
-            topic: topics[0].clone(),
-            settings,
-        };
-
+        let topic_map = TopicMap::new(topics.as_slice(), schemas.clone());
         let message = json!({});
         let expected_schema = schemas
             .get("other.yml")
             .expect("Failed to load other.yml named schema");
 
-        let schema = ctx.schema_to_use(&message);
+        let schema = topic_map.schema_for_topic("other", &message);
 
         assert!(schema.is_some());
         assert_eq!(expected_schema, schema.unwrap());
@@ -413,7 +427,7 @@ mod tests {
     #[test]
     fn test_validate_message() {
         let payload = json!({"$id" : "hello.yml", "hello" : "test"});
-        let schemas = Arc::new(schemas_for_test());
+        let schemas = schemas_for_test();
         let expected_schema = schemas
             .get("hello.yml")
             .expect("Failed to load hello.yml named schema");
@@ -430,7 +444,7 @@ mod tests {
         let payload = json!({"$id" : "hello.yml"});
         // Used for later verification without messing up ownership
         let payload_clone = payload.clone();
-        let schemas = Arc::new(schemas_for_test());
+        let schemas = schemas_for_test();
         let expected_schema = schemas
             .get("hello.yml")
             .expect("Failed to load hello.yml named schema");
