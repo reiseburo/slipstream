@@ -158,7 +158,17 @@ pub async fn produce(
 mod test {
     use super::*;
 
-    fn smoke_test() {
-        todo!();
+    /**
+     * Test that the format_routed_topic() properly replaces $name characters
+     * with the original topic name
+     */
+    #[test]
+    fn test_format_routed_topic() {
+        let original = "test";
+        let valid = "$name-valid";
+        let invalid = "$name-invalid";
+
+        assert_eq!(format_routed_topic(&original, valid), "test-valid");
+        assert_eq!(format_routed_topic(&original, invalid), "test-invalid");
     }
 }

@@ -2,7 +2,6 @@ use crate::errors::*;
 use crate::settings;
 use jsonschema::{Draft, JSONSchema};
 use log::*;
-use serde_json::json;
 use std::boxed::Box;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -166,6 +165,7 @@ fn try_compile_schema(raw_schema: &serde_json::Value) -> Result<JSONSchema> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn compiled_schemas_returns_compiled_schema() {
@@ -262,5 +262,54 @@ mod test {
             },
             _ => panic!("Test result is not `Err`"),
         }
+    }
+
+    #[test]
+    fn test_validate_message() {
+        let payload = json!({"$id" : "hello.yml", "hello" : "test"});
+        let schema_json = json!({
+            "properties": {
+                "$id": {
+                    "type": "string"
+                },
+                "hello": {
+                    "type": "string"
+                }
+            },
+            "required": ["$id", "hello"]
+        });
+        let schema = JSONSchema::compile(&schema_json, Some(Draft::Draft7))
+            .expect("Failed to compile JSONSchema");
+
+        let result = validate(payload, &schema);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_message_with_invalid() {
+        let payload = json!({"$id" : "hello.yml"});
+        // Used for later verification without messing up ownership
+        let payload_clone = payload.clone();
+        let schema_json = json!({
+            "properties": {
+                "$id": {
+                    "type": "string"
+                },
+                "hello": {
+                    "type": "string"
+                }
+            },
+            "required": ["$id", "hello"]
+
+        });
+        let schema = JSONSchema::compile(&schema_json, Some(Draft::Draft7))
+            .expect("Failed to compile JSONSchema");
+
+        let result = validate(payload, &schema);
+        assert!(result.is_err());
+        // Only expecting one validation error "'hello' is a required property"
+        let err = result.unwrap_err();
+        assert_eq!(err.errors.len(), 1);
+        assert_eq!(err.data, payload_clone);
     }
 }
