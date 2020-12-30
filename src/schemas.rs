@@ -139,27 +139,22 @@ fn try_extract_schema_id(
 fn try_read_text(root: &PathBuf, schema_id: String) -> Result<String> {
     let schema_path = root.join(schema_id);
     let schema_path = schema_path.as_path().to_str().unwrap();
-    let schema_content = fs::read_to_string(schema_path);
-    match schema_content {
-        Ok(v) => Ok(v),
-        Err(e) => Err(SlipstreamError::SchemaFileRead(e)),
-    }
+
+    let schema_text = fs::read_to_string(schema_path)?;
+
+    Ok(schema_text)
 }
 
 fn try_deserialize_yaml(yaml: &str) -> Result<serde_json::Value> {
-    let value = serde_yaml::from_str::<serde_json::Value>(yaml);
-    match value {
-        Ok(v) => Ok(v),
-        Err(e) => Err(SlipstreamError::SchemaDeserialize(e)),
-    }
+    let value = serde_yaml::from_str::<serde_json::Value>(yaml)?;
+
+    Ok(value)
 }
 
 fn try_compile_schema(raw_schema: &serde_json::Value) -> Result<JSONSchema> {
-    let compiled = JSONSchema::compile(&raw_schema, Some(Draft::Draft7));
-    match compiled {
-        Ok(c) => Ok(c),
-        Err(e) => Err(SlipstreamError::SchemaCompileFailed(e)),
-    }
+    let compiled = JSONSchema::compile(&raw_schema, Some(Draft::Draft7))?;
+
+    Ok(compiled)
 }
 
 #[cfg(test)]
@@ -276,7 +271,10 @@ mod test {
                     "type": "string"
                 }
             },
-            "required": ["$id", "hello"]
+            "required": [
+                "$id",
+                "hello"
+            ]
         });
         let schema = JSONSchema::compile(&schema_json, Some(Draft::Draft7))
             .expect("Failed to compile JSONSchema");
