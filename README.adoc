@@ -11,5 +11,5 @@ See `slipstream.yml` and `schemas.d/hello.yml` for the development configuration
 . Compile: `cargo build`
 . Launch a Kafka stack `docker-compose up`
 . Run slipstream: `RUST_LOG=info ./target/debug/slipstream`
-. Produce messages to `test`, e.g.: `echo "{\"\$schema\":\"hello.yml\",\"hello\":\"$(date)\"}" | kafkacat -P -b localhost:9092 -t test -p -1;`
+. Produce messages to `test`, e.g.: `echo "{\"\$id\":\"hello.yml\",\"hello\":\"$(date)\"}" | kafkacat -P -b localhost:9092 -t test -p -1;`
 . Watch `test.valid`, e.g. `kafkacat -C -b localhost:9092 -t test.valid`
