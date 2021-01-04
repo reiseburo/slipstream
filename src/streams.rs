@@ -120,7 +120,7 @@ pub async fn consume_topic(
     Ok(())
 }
 
-pub fn create_config(kafka_settings: &HashMap<String, String>) -> ClientConfig {
+fn create_config(kafka_settings: &HashMap<String, String>) -> ClientConfig {
     let mut kafka_config: ClientConfig = ClientConfig::new();
 
     for (key, value) in kafka_settings.iter() {
